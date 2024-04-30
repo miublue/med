@@ -924,7 +924,7 @@ prev_word(editor_t *ed)
         --i;
     }
 
-    ed->cursor = i;
+    ed->cursor = (i <= 0)? 0 : i;
 }
 
 void
