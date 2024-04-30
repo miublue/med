@@ -185,9 +185,15 @@ update_dialog(editor_t *ed)
                 LIST_ADD(str, str.size, ed->dialog.data[i]);
             }
             if (ed->mode == MODE_DIALOG_OPEN || ed->mode == MODE_DIALOG_SAVE) {
+                if (save_buffer.size > 0 && streqs(&save_buffer.data[save_buffer.size], &str)) {
+                    break;
+                }
                 LIST_ADD(save_buffer, save_buffer.size, str);
             }
             else if (ed->mode == MODE_DIALOG_FIND) {
+                if (find_buffer.size > 0 && streqs(&find_buffer.data[find_buffer.size], &str)) {
+                    break;
+                }
                 LIST_ADD(find_buffer, find_buffer.size, str);
             }
             else {
@@ -272,7 +278,8 @@ render_status(editor_t *ed)
 
 #define CURR_LINE ed->lines.data[ed->line]
 
-#define CL ed->lines.data[line]
+#define CL cline
+// #define CL ed->lines.data[line]
 #define LEN(x) (sizeof(x) / (sizeof((x)[0])))
 
 static char *keywords[] = {
@@ -357,12 +364,14 @@ static inline char*
 token(editor_t *ed, size_t line, size_t pos, size_t size)
 {
     char tok[size+1];
-    memcpy(tok, CL.data+pos, size);
+    // memcpy(tok, CL.data+pos, size);
+    memcpy(tok, ed->lines.data[line].data+pos, size);
     tok[size] = '\0';
     return tok;
 }
 
 // TODO: for some reason comments don't highlight properly if line is too long (like this)
+// TODO: multi-line comments
 // TODO: syntax highlighting for other languages
 // TODO: crop line if too long (+ add horizontal scrolling)
 static void
@@ -371,6 +380,12 @@ render_line(editor_t *ed, size_t line, size_t off)
     size_t l = line - ed->scroll;
     size_t i = 0;
     size_t s = 0;
+
+    string_t cline = (string_t) {
+        .data = ed->lines.data[line].data,
+        .size = (ed->lines.data[line].size + off >= ed->win_w)? ed->win_w-off-1 : ed->lines.data[line].size,
+        .alloc = ed->lines.data[line].alloc,
+    };
 
     mvprintw(l, off, STR_FMT, STR_ARG(CL));
 
@@ -679,6 +694,7 @@ search_line(editor_t *ed, char *str, int l)
     return FALSE;
 }
 
+// TODO: also search same line
 void
 search_text(editor_t *ed)
 {
@@ -1048,17 +1064,30 @@ update_insert(editor_t *ed)
             next_word(ed);
         } break;
         case CTRL('w'): {
-            if (CURR_LINE.size == 0) {
+            if (CURR_LINE.size == 0 || ed->cursor >= CURR_LINE.size) {
                 delete(ed);
                 break;
             }
             int curr = ed->cursor;
             next_word(ed);
             for (size_t i = curr; i < ed->cursor; ++i) {
-                if (i >= CURR_LINE.size) break;
+                if (curr >= CURR_LINE.size) break;
                 LIST_POP(CURR_LINE, curr);
             }
             ed->cursor = curr;
+        } break;
+        case CTRL('b'): {
+            if (CURR_LINE.size == 0 || ed->cursor == 0) {
+                move_left(ed);
+                delete(ed);
+                break;
+            }
+            int curr = ed->cursor;
+            prev_word(ed);
+            for (size_t i = ed->cursor; i < curr; ++i) {
+                if (CURR_LINE.size == 0) break;
+                LIST_POP(CURR_LINE, ed->cursor);
+            }
         } break;
         case KEY_UP: {
             move_up(ed);
