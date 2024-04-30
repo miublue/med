@@ -656,6 +656,7 @@ search_line(editor_t *ed, char *str, int l)
         }
         return FALSE;
     }
+    // TODO: search for line end
 
     char *f = strstr(line, str);
     if (f) {
@@ -846,6 +847,83 @@ newline(editor_t *ed)
     scroll_down(ed);
 }
 
+int
+next_space(editor_t *ed, int i)
+{
+    while (i <= CURR_LINE.size && isspace(CURR_LINE.data[i])) ++i;
+    return i;
+}
+
+int
+prev_space(editor_t *ed, int i)
+{
+    while (i > 0 && isspace(CURR_LINE.data[i])) --i;
+    return i;
+}
+
+void
+next_word(editor_t *ed)
+{
+    int i = ed->cursor+1;
+
+    i = next_space(ed, i);
+    while (i < CURR_LINE.size && isalnum(CURR_LINE.data[i])) {
+        // if (isspace(CURR_LINE.data[i]))
+            // i = next_space(ed, i);
+        ++i;
+    }
+
+    ed->cursor = i;
+    if (ed->cursor > CURR_LINE.size) {
+        if (ed->line < ed->lines.size) {
+            move_down(ed);
+            ed->cursor = 0;
+        }
+        else {
+            ed->cursor = CURR_LINE.size;
+        }
+    }
+}
+
+void
+prev_word(editor_t *ed)
+{
+    if (ed->cursor == 0) {
+        if (ed->line > 0) {
+            move_up(ed);
+            ed->cursor = CURR_LINE.size;
+        }
+        else {
+            ed->cursor = 0;
+        }
+        return;
+    }
+
+    int i = ed->cursor-1;
+
+    i = prev_space(ed, i);
+    while (i >= 0 && isalnum(CURR_LINE.data[i])) {
+        // if (isspace(CURR_LINE.data[i]))
+            // i = prev_space(ed, i);
+        --i;
+    }
+
+    ed->cursor = i;
+}
+
+void
+delete(editor_t *ed)
+{
+    if (ed->cursor < CURR_LINE.size) {
+        LIST_POP(CURR_LINE, ed->cursor);
+    }
+    else if (ed->line < ed->lines.size-1) {
+        ed->line++;
+        ed->cursor = 0;
+        merge_lines(ed);
+    }
+}
+
 void
 update_insert(editor_t *ed)
 {
@@ -913,7 +991,7 @@ update_insert(editor_t *ed)
             scroll_set(ed);
         } break;
         case CTRL('k'): {
-            ed->line++;
+            move_down(ed);
             ed->cursor = 0;
             merge_lines(ed);
         } break;
@@ -955,20 +1033,32 @@ update_insert(editor_t *ed)
             }
         } break;
         case KEY_DC: {
-            if (ed->cursor < CURR_LINE.size) {
-                LIST_POP(CURR_LINE, ed->cursor);
-            }
-            else if (ed->line < ed->lines.size-1) {
-                ed->line++;
-                ed->cursor = 0;
-                merge_lines(ed);
-            }
+            delete(ed);
         } break;
         case KEY_LEFT: {
             move_left(ed);
         } break;
         case KEY_RIGHT: {
             move_right(ed);
+        } break;
+        case CTRL('a'): {
+            prev_word(ed);
+        } break;
+        case CTRL('e'): {
+            next_word(ed);
+        } break;
+        case CTRL('w'): {
+            if (CURR_LINE.size == 0) {
+                delete(ed);
+                break;
+            }
+            int curr = ed->cursor;
+            next_word(ed);
+            for (size_t i = curr; i < ed->cursor; ++i) {
+                if (i >= CURR_LINE.size) break;
+                LIST_POP(CURR_LINE, curr);
+            }
+            ed->cursor = curr;
         } break;
         case KEY_UP: {
             move_up(ed);
@@ -1031,9 +1121,10 @@ update_visual_edit_start(editor_t *ed)
         case CTRL('l'): {
             size_t l = ed->line, s = ed->scroll;
             ed->line = start;
-            for (size_t i = start; i <= end; ++i) {
-                comment_line(ed);
+            comment_line(ed);
+            for (size_t i = start; i < end; ++i) {
                 move_down(ed);
+                comment_line(ed);
             }
             ed->line = l;
             ed->scroll = s;
@@ -1145,9 +1236,10 @@ update_visual_edit_end(editor_t *ed)
         case CTRL('l'): {
             size_t l = ed->line, s = ed->scroll;
             ed->line = start;
-            for (size_t i = start; i <= end; ++i) {
-                comment_line(ed);
+            comment_line(ed);
+            for (size_t i = start; i < end; ++i) {
                 move_down(ed);
+                comment_line(ed);
             }
             ed->line = l;
             ed->scroll = s;
@@ -1265,13 +1357,17 @@ update_visual(editor_t *ed)
         case 8: // shift + backspace
         case KEY_BACKSPACE: {
             new_clip();
-            size_t l = ed->line, s = ed->scroll;
+            // size_t l = ed->line, s = ed->scroll;
+            size_t s = ed->scroll;
             ed->line = start;
             for (size_t i = start; i <= end; ++i) {
                 delete_line(ed);
             }
-            ed->line = l;
-            ed->scroll = s;
+            ed->line = start;
+            ed->scroll = s - (end - start);
+            if (ed->scroll < 0) ed->scroll = 0;
+            // ed->line = l;
+            // ed->scroll = s;
             ed->visual = (visual_t) {0, 0};
             ed->mode = MODE_INSERT;
         } break;
@@ -1304,9 +1400,10 @@ update_visual(editor_t *ed)
         case CTRL('l'): {
             size_t l = ed->line, s = ed->scroll;
             ed->line = start;
-            for (size_t i = start; i <= end; ++i) {
-                comment_line(ed);
+            comment_line(ed);
+            for (size_t i = start; i < end; ++i) {
                 move_down(ed);
+                comment_line(ed);
             }
             ed->line = l;
             ed->scroll = s;
