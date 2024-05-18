@@ -6,6 +6,7 @@
 
 #include "mlist.h"
 #include "mstring.h"
+#include "mexec.h"
 #include "editor.h"
 
 // #define CTRL(c) ((c) & 037)
@@ -37,6 +38,8 @@ lines_t clip;
 lines_t save_buffer;
 lines_t find_buffer;
 int buffer_pos = 0;
+
+bool can_read_file(const char *path);
 
 void
 init_curses()
@@ -209,8 +212,10 @@ update_dialog(editor_t *ed)
             ed->dialog_cursor++;
         } break;
         default: {
-            LIST_ADD(ed->dialog, ed->dialog_cursor, ch);
-            ed->dialog_cursor++;
+            if (isprint(ch)) {
+                LIST_ADD(ed->dialog, ed->dialog_cursor, ch);
+                ed->dialog_cursor++;
+            }
         } break;
     }
 
@@ -326,7 +331,7 @@ is_word_start(char c)
 static int
 is_number(char c)
 {
-    return isdigit(c) || c == '.';
+    return isxdigit(c) || c == '.';
 }
 
 static int
@@ -398,6 +403,17 @@ render_line(editor_t *ed, size_t line, size_t off)
             mvprintw(l, off+s, "%s", tok);
             attroff(COLOR_PAIR(PAIR_HL_COMMENT));
         }
+        else if (i+1 < CL.size && CL.data[i] == '/' && CL.data[i+1] == '*') {
+            s = i;
+            while (i+1 < CL.size && !(CL.data[i] == '*' && CL.data[i+1] == '/')) {
+                ++i;
+            }
+            if (i < CL.size) i += 2;
+            char *tok = token(ed, line, s, i-s);
+            attron(COLOR_PAIR(PAIR_HL_COMMENT));
+            mvprintw(l, off+s, "%s", tok);
+            attroff(COLOR_PAIR(PAIR_HL_COMMENT));
+        }
         else if (CL.data[i] == '\"') {
             s = i++;
             while (i < CL.size && CL.data[i] != '\"') {
@@ -432,6 +448,7 @@ render_line(editor_t *ed, size_t line, size_t off)
         }
         else if (isdigit(CL.data[i])) {
             s = i;
+            if (i+2 < CL.size && (CL.data[i+1] == 'x' || CL.data[i+1] == 'X')) i+=2;
             while (i < CL.size && is_number(CL.data[i])) ++i;
             char *tok = token(ed, line, s, i-s);
             attron(COLOR_PAIR(PAIR_HL_NUMBER));
@@ -941,6 +958,19 @@ delete(editor_t *ed)
 }
 
 void
+open_search_file(editor_t *ed)
+{
+    end_curses();
+    char *bruh = execscript("command fzf");
+    init_curses();
+    if (can_read_file(bruh)) {
+        free_editor(ed);
+        *ed = init_editor(bruh);
+    }
+    free(bruh);
+}
+
+void
 update_insert(editor_t *ed)
 {
     int ch = getch();
@@ -965,6 +995,9 @@ update_insert(editor_t *ed)
             ed->dialog_cursor = 0;
             buffer_pos = save_buffer.size-1;
             ed->mode = MODE_DIALOG_OPEN;
+        } break;
+        case CTRL('r'): {
+            open_search_file(ed);
         } break;
         case CTRL('x'): {
             new_clip();
@@ -1105,8 +1138,10 @@ update_insert(editor_t *ed)
             newline(ed);
         } break;
         default: {
-            LIST_ADD(CURR_LINE, ed->cursor, ch);
-            ed->cursor++;
+            if (isprint(ch)) {
+                LIST_ADD(CURR_LINE, ed->cursor, ch);
+                ed->cursor++;
+            }
         } break;
     }
 }
@@ -1221,8 +1256,10 @@ update_visual_edit_start(editor_t *ed)
             ed->mode = MODE_INSERT;
         } break;
         default: {
-            LIST_ADD(ed->visual_buffer, ed->cursor, ch);
-            ed->cursor++;
+            if (isprint(ch)) {
+                LIST_ADD(ed->visual_buffer, ed->cursor, ch);
+                ed->cursor++;
+            }
         } break;
     }
 }
@@ -1336,8 +1373,10 @@ update_visual_edit_end(editor_t *ed)
             ed->mode = MODE_INSERT;
         } break;
         default: {
-            LIST_ADD(ed->visual_buffer, ed->cursor, ch);
-            ed->cursor++;
+            if (isprint(ch)) {
+                LIST_ADD(ed->visual_buffer, ed->cursor, ch);
+                ed->cursor++;
+            }
         } break;
     }
 }
