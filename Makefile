@@ -1,7 +1,7 @@
 OUT = ./med
 LIB = -lncurses
-INC = -I ./src -I ../mutils/
-SRC = ./src/*.c ../mutils/mstring.c
+INC = -I ./src -I ../mutils/ -I .
+SRC = ./src/*.c ../mutils/mstring.c ../mutils/mexec.c
 
 all:
 	tcc -o $(OUT) $(SRC) $(INC) $(LIB)

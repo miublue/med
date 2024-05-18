@@ -271,10 +271,7 @@ render_status(editor_t *ed)
 
     attron(COLOR_PAIR(PAIR_STATUS_MODE));
     mvprintw(ed->win_h-1, 0, " %s ", mode);
-    // mvprintw(ed->win_h-1, ed->win_w-strlen(mode)-2, " %s ", mode);
     attroff(COLOR_PAIR(PAIR_STATUS_MODE));
-
-    // mvprintw(ed->win_h-1, ed->win_w-20, "%s [%d]", keyname(ch), ch);
 
     if (ed->mode >= MODE_DIALOG_SAVE) {
         render_dialog(ed, strlen(mode)+3);
@@ -287,98 +284,53 @@ render_status(editor_t *ed)
 // #define CL ed->lines.data[line]
 #define LEN(x) (sizeof(x) / (sizeof((x)[0])))
 
-static char *keywords[] = {
-    "alignas", "alignof", "auto", "bool",
-    "break", "case", "char", "const", "asm",
-    "constexpr", "continue", "default",
-    "do", "double", "else", "enum", "extern",
-    "false", "float", "for", "goto", "if",
-    "inline", "int", "long", "nullptr", "register",
-    "restrict", "return", "short", "signed",
-    "sizeof", "static", "static_assert", "struct",
-    "switch", "thread_local", "true", "typedef",
-    "typeof", "typeof_unqual", "union", "unsigned",
-    "void", "volatile", "while", "_Alignas",
-    "_Alignof", "_Atomic", "_BitInt", "_Bool",
-    "_Complex", "_Decimal128", "_Decimal32",
-    "_Decimal64", "_Generic", "_Imaginary",
-    "_Noreturn", "_Static_assert", "_Thread_local",
-};
-
-// static char *keywords[] = {
-//     "struct", "union", "enum", "typedef",
-//     "static", "inline", "const", "return",
-//     "for", "while", "do", "if", "else",
-//     "continue", "switch", "case",
-//     "default", "break",
-// 
-//     "auto", "void", "int", "long", "bool",
-//     "float", "double", "size_t", "char",
-// };
-
-static int
-is_word(char c)
-{
-    return isalnum(c) || c == '_';
-}
-
-static int
-is_word_start(char c)
-{
-    return isalpha(c) || c == '_';
-}
-
-static int
+static bool
 is_number(char c)
 {
     return isxdigit(c) || c == '.';
 }
 
-static int
-is_keyword(char *tok)
+static bool
+is_separator(highlight_t *hl, char c)
+{
+    if (hl->separator)
+        return hl->separator(c) || isspace(c);
+
+    char *separators = "(){}[]\"\'.,!=><:;+-*/$%&*^~\\#@";
+    return (strchr(separators, c) != NULL) || isspace(c);
+}
+
+static bool
+is_keyword(highlight_t *hl, char *tok)
 {
     int sz = strlen(tok);
+    for (int i = 0; hl->keywords[i]; ++i) {
+        int len = strlen(hl->keywords[i]);
+        if (sz != len) continue;
 
-    for (int i = 0; i < LEN(keywords); ++i) {
-        if (strlen(keywords[i]) != sz)
-            continue;
-        if (strncmp(tok, keywords[i], sz) == 0)
+        if (memcmp(hl->keywords[i], tok, len) == 0)
             return true;
     }
 
-    // custom type
-    if (sz > 2 && tok[sz-2] == '_' && (tok[sz-1] == 't' || tok[sz-1] == 'T')) {
-        return true;
-    }
-
+    // custom syntax
+    if (hl->special)
+        return hl->special(tok);
     return false;
-}
-
-static int
-is_constant(char *tok)
-{
-    int sz = strlen(tok);
-    for (int i = 0; i < sz; ++i) {
-        if (islower(tok[i]))
-            return false;
-    }
-    return true;
 }
 
 static inline char*
 token(editor_t *ed, size_t line, size_t pos, size_t size)
 {
-    char tok[size+1];
+    char tok[1024] = {0};
     // memcpy(tok, CL.data+pos, size);
     memcpy(tok, ed->lines.data[line].data+pos, size);
     tok[size] = '\0';
     return tok;
 }
 
-// TODO: for some reason comments don't highlight properly if line is too long (like this)
 // TODO: multi-line comments
 // TODO: syntax highlighting for other languages
-// TODO: crop line if too long (+ add horizontal scrolling)
+// TODO: horizontal scrolling
 static void
 render_line(editor_t *ed, size_t line, size_t off)
 {
@@ -388,33 +340,21 @@ render_line(editor_t *ed, size_t line, size_t off)
 
     string_t cline = (string_t) {
         .data = ed->lines.data[line].data,
-        .size = (ed->lines.data[line].size + off >= ed->win_w)? ed->win_w-off-1 : ed->lines.data[line].size,
+        .size = (ed->lines.data[line].size + off >= ed->win_w)?
+                    ed->win_w-off-1 : ed->lines.data[line].size,
         .alloc = ed->lines.data[line].alloc,
     };
 
     mvprintw(l, off, STR_FMT, STR_ARG(CL));
 
+    if (ed->csyntax == 0)
+        return;
+
+    highlight_t *hl = &ed->syntax.data[ed->csyntax];
+    int csz = strlen(hl->comment.scomment);
+
     while (i < CL.size) {
-        if (i+1 < CL.size && CL.data[i] == '/' && CL.data[i+1] == '/') {
-            s = i;
-            i = CL.size;
-            char *tok = token(ed, line, s, i-s);
-            attron(COLOR_PAIR(PAIR_HL_COMMENT));
-            mvprintw(l, off+s, "%s", tok);
-            attroff(COLOR_PAIR(PAIR_HL_COMMENT));
-        }
-        else if (i+1 < CL.size && CL.data[i] == '/' && CL.data[i+1] == '*') {
-            s = i;
-            while (i+1 < CL.size && !(CL.data[i] == '*' && CL.data[i+1] == '/')) {
-                ++i;
-            }
-            if (i < CL.size) i += 2;
-            char *tok = token(ed, line, s, i-s);
-            attron(COLOR_PAIR(PAIR_HL_COMMENT));
-            mvprintw(l, off+s, "%s", tok);
-            attroff(COLOR_PAIR(PAIR_HL_COMMENT));
-        }
-        else if (CL.data[i] == '\"') {
+        if (CL.data[i] == '\"') {
             s = i++;
             while (i < CL.size && CL.data[i] != '\"') {
                 ++i;
@@ -455,28 +395,24 @@ render_line(editor_t *ed, size_t line, size_t off)
             mvprintw(l, off+s, "%s", tok);
             attroff(COLOR_PAIR(PAIR_HL_NUMBER));
         }
-        else if (is_word_start(CL.data[i])) {
+        else if (i + strlen(hl->comment.scomment)-1 < CL.size &&
+                strncmp(CL.data+i, hl->comment.scomment, csz) == 0) {
             s = i;
-            while (i < CL.size && is_word(CL.data[i])) ++i;
+            i = CL.size;
             char *tok = token(ed, line, s, i-s);
-            if (is_keyword(tok)) {
+            attron(COLOR_PAIR(PAIR_HL_COMMENT));
+            mvprintw(l, off+s, "%s", tok);
+            attroff(COLOR_PAIR(PAIR_HL_COMMENT));
+        }
+        else if (!is_separator(hl, CL.data[i])) {
+            s = i;
+            while (i < CL.size && !is_separator(hl, CL.data[i])) ++i;
+            char *tok = token(ed, line, s, i-s);
+            if (is_keyword(hl, tok)) {
                 attron(COLOR_PAIR(PAIR_HL_KEYWORD));
                 mvprintw(l, off+s, "%s", tok);
                 attroff(COLOR_PAIR(PAIR_HL_KEYWORD));
             }
-            else if (is_constant(tok)) {
-                attron(COLOR_PAIR(PAIR_HL_CONSTANT));
-                mvprintw(l, off+s, "%s", tok);
-                attroff(COLOR_PAIR(PAIR_HL_CONSTANT));
-            }
-        }
-        else if (CL.data[i] == '#') {
-            s = i++;
-            while (i < CL.size && is_word(CL.data[i])) ++i;
-            char *tok = token(ed, line, s, i-s);
-            attron(COLOR_PAIR(PAIR_HL_KEYWORD));
-            mvprintw(l, off+s, "%s", tok);
-            attroff(COLOR_PAIR(PAIR_HL_KEYWORD));
         }
         else {
             ++i;
@@ -831,23 +767,33 @@ move_home(editor_t *ed)
 void
 comment_line(editor_t *ed)
 {
+    if (!ed->csyntax) return;
+    highlight_t hl = ed->syntax.data[ed->csyntax];
+    const char *comment = hl.comment.scomment;
+    if (!comment) return;
+    int csz = strlen(comment);
+
     size_t c = ed->cursor;
     ed->cursor = 0;
     move_home(ed);
-    if (CURR_LINE.data[ed->cursor] == '/') {
-        if (CURR_LINE.data[ed->cursor+1] == '/') {
-            LIST_POP(CURR_LINE, ed->cursor);
-            LIST_POP(CURR_LINE, ed->cursor);
+
+    if (CURR_LINE.size > csz) {
+        if (strncmp(CURR_LINE.data+ed->cursor, comment, csz) == 0) {
+            for (int i = 0; i < csz; ++i) {
+                LIST_POP(CURR_LINE, ed->cursor);
+            }
             if (CURR_LINE.data[ed->cursor] == ' ') {
                 LIST_POP(CURR_LINE, ed->cursor);
             }
         }
+        else {
+            for (int i = csz-1; i >= 0; --i) {
+                LIST_ADD(CURR_LINE, ed->cursor, comment[i]);
+            }
+            LIST_ADD(CURR_LINE, ed->cursor+csz, ' ');
+        }
     }
-    else {
-        LIST_ADD(CURR_LINE, ed->cursor, ' ');
-        LIST_ADD(CURR_LINE, ed->cursor, '/');
-        LIST_ADD(CURR_LINE, ed->cursor, '/');
-    }
+
     ed->cursor = c;
     if (ed->cursor >= CURR_LINE.size)
         ed->cursor = CURR_LINE.size;
@@ -934,8 +880,8 @@ prev_word(editor_t *ed)
 
     int i = ed->cursor-1;
 
-    i = prev_space(ed, i);
-    while (i >= 0 && isalnum(CURR_LINE.data[i])) {
+    i = prev_space(ed, i)-1;
+    while (i > 0 && isalnum(CURR_LINE.data[i-1])) {
         // if (isspace(CURR_LINE.data[i]))
             // i = prev_space(ed, i);
         --i;
@@ -1042,13 +988,17 @@ update_insert(editor_t *ed)
         case CTRL('k'): {
             move_down(ed);
             ed->cursor = 0;
+            while (isspace(CURR_LINE.data[0])) {
+                LIST_POP(CURR_LINE, 0);
+            }
+            LIST_ADD(CURR_LINE, 0, ' ');
             merge_lines(ed);
-        } break;
-        case KEY_HOME: {
-            move_home(ed);
         } break;
         case CTRL('l'): {
             comment_line(ed);
+        } break;
+        case KEY_HOME: {
+            move_home(ed);
         } break;
         case KEY_END: {
             ed->cursor = CURR_LINE.size;
@@ -1059,27 +1009,12 @@ update_insert(editor_t *ed)
         case KEY_NPAGE: {
             page_down(ed);
         } break;
-        // TODO: refactor backspace/delete
         case 8: // shift + backspace
         case KEY_BACKSPACE: {
-            if (ed->cursor == 0 && ed->line > 0) {
-                if (CURR_LINE.size == 0) {
-                    free(CURR_LINE.data);
-                    LIST_POP(ed->lines, ed->line);
-                    ed->line--;
-                    ed->cursor = CURR_LINE.size;
-                }
-                else {
-                    merge_lines(ed);
-                }
-                if (ed->line + ed->scroll + 2 > ed->win_h) {
-                   ed->scroll--;
-                }
-            }
-            else if (ed->cursor > 0) {
-                ed->cursor--;
-                LIST_POP(CURR_LINE, ed->cursor);
-            }
+            if (ed->cursor == 0 && ed->line == 0)
+                break;
+            move_left(ed);
+            delete(ed);
         } break;
         case KEY_DC: {
             delete(ed);
@@ -1588,6 +1523,35 @@ split_lines(string_t text)
     return lines;
 }
 
+static void
+guess_syntax(editor_t *ed)
+{
+    // oh my fucking god
+    int sz = ed->file.size;
+    char *f = ed->file.data;
+
+    for (int i = 1; i < ed->syntax.size; ++i) {
+        highlight_t hl = ed->syntax.data[i];
+
+        for (int j = 0; hl.extensions[j]; ++j) {
+            const char *ext = hl.extensions[j];
+            int ext_sz = strlen(ext);
+            if (sz < ext_sz) continue;
+
+            if (strncmp(f + sz - ext_sz, ext, ext_sz) == 0) {
+                ed->csyntax = i;
+                return;
+            }
+        }
+    }
+}
+
+#include "syntax/C_syntax.c"
+#include "syntax/D_syntax.c"
+#include "syntax/Zig_syntax.c"
+#include "syntax/Masm_syntax.c"
+#include "syntax/Miu_syntax.c"
+
 editor_t
 init_editor(const char *path)
 {
@@ -1602,6 +1566,17 @@ init_editor(const char *path)
     ed.visual_buffer = L_STRING;
     ed.dialog = L_STRING;
     ed.dialog_cursor = 0;
+    ed.syntax = (list_highlight_t) LIST_ALLOC(highlight_t);
+    ed.csyntax = 0;
+
+    // TODO: load 'em smarter
+    highlight_t empty_hl = {0};
+    LIST_ADD(ed.syntax, 0, empty_hl);
+    LIST_ADD(ed.syntax, ed.syntax.size, C_syntax());
+    LIST_ADD(ed.syntax, ed.syntax.size, D_syntax());
+    LIST_ADD(ed.syntax, ed.syntax.size, Zig_syntax());
+    LIST_ADD(ed.syntax, ed.syntax.size, Masm_syntax());
+    LIST_ADD(ed.syntax, ed.syntax.size, Miu_syntax());
 
     if (!path) {
         ed.lines = L_LINES;
@@ -1624,6 +1599,7 @@ init_editor(const char *path)
             ed.file.data = realloc(ed.file.data, ed.file.alloc * sizeof(char));
         }
         memmove(ed.file.data, path, ed.file.size);
+        guess_syntax(&ed);
     }
 
     return ed;
@@ -1632,6 +1608,7 @@ init_editor(const char *path)
 void
 free_editor(editor_t *ed)
 {
+    LIST_FREE(ed->syntax);
     LIST_FREE(ed->lines);
     LIST_FREE(ed->visual_buffer);
 }
@@ -1644,11 +1621,11 @@ main(int argc, const char *argv[])
     if (argc > 1)
         path = argv[1];
 
+    editor_t ed = init_editor(path);
+
     save_buffer = L_LINES;
     find_buffer = L_LINES;
     new_clip();
-
-    editor_t ed = init_editor(path);
 
     while (!ed.quit) {
         getmaxyx(stdscr, ed.win_h, ed.win_w);

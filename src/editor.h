@@ -30,6 +30,25 @@ typedef struct visual_t {
     int start, end;
 } visual_t;
 
+struct highlight_comment_t {
+    const char *scomment; // single-line comment
+    const char *mcomment[2]; // multi-line comment
+};
+
+typedef struct highlight_t {
+    const char **extensions;
+    const char **keywords;
+    struct highlight_comment_t comment;
+    // in case it couldn't find a keyword nor a comment
+    // it'll call this function to see if it needs any
+    // language-specific highlighting (for example, C macros)
+    bool (*special)(char*);
+    // language-specific separators
+    bool (*separator)(char);
+} highlight_t;
+
+LIST_DEFINE(highlight_t, list_highlight_t);
+
 typedef struct editor_t {
     string_t file;
     string_t dialog;
@@ -44,6 +63,9 @@ typedef struct editor_t {
     bool quit;
     visual_t visual;
     string_t visual_buffer;
+
+    int csyntax; // current syntax
+    list_highlight_t syntax;
 } editor_t;
 
 void render_text(editor_t *ed);
