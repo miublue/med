@@ -1546,11 +1546,15 @@ guess_syntax(editor_t *ed)
     }
 }
 
-#include "syntax/C_syntax.c"
-#include "syntax/D_syntax.c"
-#include "syntax/Zig_syntax.c"
-#include "syntax/Masm_syntax.c"
-#include "syntax/Miu_syntax.c"
+#include "syntax/c_syntax.c"
+#include "syntax/d_syntax.c"
+#include "syntax/zig_syntax.c"
+#include "syntax/rs_syntax.c"
+#include "syntax/sh_syntax.c"
+#include "syntax/py_syntax.c"
+#include "syntax/lua_syntax.c"
+#include "syntax/masm_syntax.c"
+#include "syntax/miu_syntax.c"
 
 editor_t
 init_editor(const char *path)
@@ -1575,6 +1579,10 @@ init_editor(const char *path)
     LIST_ADD(ed.syntax, ed.syntax.size, C_syntax());
     LIST_ADD(ed.syntax, ed.syntax.size, D_syntax());
     LIST_ADD(ed.syntax, ed.syntax.size, Zig_syntax());
+    LIST_ADD(ed.syntax, ed.syntax.size, Rust_syntax());
+    LIST_ADD(ed.syntax, ed.syntax.size, Python_syntax());
+    LIST_ADD(ed.syntax, ed.syntax.size, Lua_syntax());
+    LIST_ADD(ed.syntax, ed.syntax.size, Sh_syntax());
     LIST_ADD(ed.syntax, ed.syntax.size, Masm_syntax());
     LIST_ADD(ed.syntax, ed.syntax.size, Miu_syntax());
 
